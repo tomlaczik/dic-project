@@ -6,10 +6,10 @@ import scalaj.http.{Http}
 object Project {
   def main(args: Array[String]) {
     val dates = List(
-      "2017",
-      "2018",
-      "2019",
-      "2020"
+      "2017-03-12",
+      "2018-06-30",
+      "2019-07-01",
+      "2020-03-11"
     )
 
     // Each resource contains data between July 1 of the given year and June 30 of the next year
@@ -29,20 +29,30 @@ object Project {
     )
 
     for (date <- dates) {
-      println(JSONObject(Map("Reported Date" -> date)).toString())
-      val response = Http("https://data.sa.gov.au/data/api/3/action/datastore_search")
-        .param("resource_id", "590083cd-be2f-4a6c-871e-0ec4c717717b")
-        .param("limit", "1")
-        .param("q", JSONObject(Map("Reported Date" -> date)).toString())
-        .asString
+      println("Reported Date: " + date)
 
-      val data = JSON.parseFull(response.body).get.asInstanceOf[Map[String, Any]]
-      val result = data.get("result").get.asInstanceOf[Map[String, Any]]
-      val records = result.get("records").get.asInstanceOf[List[Map[String, String]]]
+      val Array(year, monthAndDay) = date.split("-", 2)
+      val resourceIdKey = if (monthAndDay >= "07-01") year else (year.toInt - 1).toString
+      val resourceId = resourceIds.getOrElse(resourceIdKey, null)
 
-      println(records)
+      if(resourceId == null) {
+        println("Resource ID not found");
+      }
+      else {
+        val response = Http("https://data.sa.gov.au/data/api/3/action/datastore_search")
+          .param("resource_id", resourceId)
+          .param("limit", "1")
+          .param("q", JSONObject(Map("Reported Date" -> date)).toString())
+          .asString
 
-      println(result.get("total").getOrElse(0))
+        val data = JSON.parseFull(response.body).get.asInstanceOf[Map[String, Any]]
+        val result = data.get("result").get.asInstanceOf[Map[String, Any]]
+        val records = result.get("records").get.asInstanceOf[List[Map[String, String]]]
+
+        println(records)
+
+        println(result.get("total").getOrElse(0))
+      }
     }
   }
 }
