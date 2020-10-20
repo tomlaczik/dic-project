@@ -1,21 +1,15 @@
 package project
 
+import scala.collection.immutable.TreeMap
 import scala.util.parsing.json.{JSON, JSONObject}
-import scalaj.http.{Http}
+import scalaj.http.Http
 
 object Project {
   def main(args: Array[String]) {
-    val dates = List(
-      "2017-03-12",
-      "2018-06-30",
-      "2019-07-01",
-      "2020-03-11"
-    )
-
     // Each resource contains data between January 7 of the given year and December 6 of the next year
     // E.g. 2018: 2018-01-07 => 2019-12-06
     // Source: https://data.gov.au/dataset/ds-sa-860126f7-eeb5-4fbc-be44-069aa0467d11/details
-    val resourceIds = Map(
+    val resourceIds = TreeMap(
       "2019" -> "590083cd-be2f-4a6c-871e-0ec4c717717b",
       "2018" -> "809b11dd-9944-4406-a0c4-af6a5b332177",
       "2017" -> "bf604730-9ec8-44dd-88a3-f024b387e0e4",
@@ -28,33 +22,28 @@ object Project {
       "2010" -> "9d8a2ad3-ffe5-42a4-861a-b14c60a28623"
     )
 
-    for (date <- dates) {
-      println("Reported Date: " + date)
-
-      val year = date.split("-", 2)(0)
-      val resourceId = resourceIds.getOrElse(year, resourceIds.getOrElse((year.toInt - 1).toString, null))
-      
+    for ((year, resourceId) <- resourceIds) {
       println("Resource year: " + year)
+      println("Resource ID: " + resourceId)
 
-      if(resourceId == null) {
-        println("Resource ID not found")
-      }
-      else {
-        println("Resource ID: " + resourceId)
-        val response = Http("https://data.sa.gov.au/data/api/3/action/datastore_search")
-          .param("resource_id", resourceId)
-          .param("limit", "1")
-          .param("filters", JSONObject(Map("Reported Date" -> date)).toString())
-          .asString
+      val startDate = year + "-01-01";
+      val endDate = year + "-12-31";
+      val query = "SELECT \"Reported Date\", SUM(\"Offence count\") FROM \"" + resourceId + "\" WHERE \"Reported Date\" BETWEEN '" + startDate + "' AND '" + endDate + "' GROUP BY \"Reported Date\" ORDER BY \"Reported Date\""
 
-        val data = JSON.parseFull(response.body).get.asInstanceOf[Map[String, Any]]
-        val result = data.get("result").get.asInstanceOf[Map[String, Any]]
-        val records = result.get("records").get.asInstanceOf[List[Map[String, String]]]
+      println("SQL: " + query)
 
-        println(records)
+      val response = Http("https://data.sa.gov.au/data/api/3/action/datastore_search_sql")
+        .param("sql", query)
+        .asString
 
-        println(result.get("total").getOrElse(0))
-      }
+      val data = JSON.parseFull(response.body).get.asInstanceOf[Map[String, Any]]
+      val result = data.get("result").get.asInstanceOf[Map[String, Any]]
+      val records = result.get("records").get.asInstanceOf[List[Map[String, String]]]
+
+      println("First record: " + records(0))
+      println("Last record: " + records(records.size - 1))
+      println("Total records: " + records.size)
+      println("")
     }
   }
 }
