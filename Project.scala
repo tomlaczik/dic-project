@@ -12,8 +12,8 @@ object Project {
       "2020-03-11"
     )
 
-    // Each resource contains data between July 1 of the given year and June 30 of the next year
-    // E.g. 2018: 2018-07-01 => 2019-06-30
+    // Each resource contains data between January 7 of the given year and December 6 of the next year
+    // E.g. 2018: 2018-01-07 => 2019-12-06
     // Source: https://data.gov.au/dataset/ds-sa-860126f7-eeb5-4fbc-be44-069aa0467d11/details
     val resourceIds = Map(
       "2019" -> "590083cd-be2f-4a6c-871e-0ec4c717717b",
@@ -31,18 +31,20 @@ object Project {
     for (date <- dates) {
       println("Reported Date: " + date)
 
-      val Array(year, monthAndDay) = date.split("-", 2)
-      val resourceIdKey = if (monthAndDay >= "07-01") year else (year.toInt - 1).toString
-      val resourceId = resourceIds.getOrElse(resourceIdKey, null)
+      val year = date.split("-", 2)(0)
+      val resourceId = resourceIds.getOrElse(year, resourceIds.getOrElse((year.toInt - 1).toString, null))
+      
+      println("Resource year: " + year)
 
       if(resourceId == null) {
-        println("Resource ID not found");
+        println("Resource ID not found")
       }
       else {
+        println("Resource ID: " + resourceId)
         val response = Http("https://data.sa.gov.au/data/api/3/action/datastore_search")
           .param("resource_id", resourceId)
           .param("limit", "1")
-          .param("q", JSONObject(Map("Reported Date" -> date)).toString())
+          .param("filters", JSONObject(Map("Reported Date" -> date)).toString())
           .asString
 
         val data = JSON.parseFull(response.body).get.asInstanceOf[Map[String, Any]]
