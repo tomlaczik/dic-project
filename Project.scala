@@ -1,8 +1,13 @@
 package project
 
+import java.io._
+
 import scala.collection.immutable.TreeMap
 import scala.util.parsing.json.{JSON, JSONObject}
 import scalaj.http.Http
+
+import vegas._
+import vegas.render.WindowRenderer._
 
 object Project {
   def main(args: Array[String]) {
@@ -44,6 +49,17 @@ object Project {
       println("Last record: " + records(records.size - 1))
       println("Total records: " + records.size)
       println("")
+
+      val plot = Vegas(year)
+        .withData(records)
+        .encodeX("Reported Date", Nom)
+        .encodeY("sum", Quant)
+        .mark(Bar)
+
+      val file = new File("output/" + year + ".html")
+      val bw = new BufferedWriter(new FileWriter(file))
+      bw.write(plot.html.pageHTML())
+      bw.close()
     }
   }
 }

@@ -8,6 +8,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-core" % "2.2.1",
   "org.apache.spark" %% "spark-sql" % "2.2.1",
   "org.apache.spark" % "spark-streaming_2.11" % "2.2.1",
-  "org.scalaj" % "scalaj-http_2.11" % "2.3.0"
+  "org.scalaj" % "scalaj-http_2.11" % "2.3.0",
+  "org.vegas-viz" %% "vegas" % "0.3.11",
 )
 
