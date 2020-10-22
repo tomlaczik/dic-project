@@ -15,29 +15,40 @@ import scala.collection.mutable.HashMap
 import scala.collection.immutable.List
 import scala.collection.mutable.ListBuffer  
 
+/*
+//imports for writing to cassandra
+import org.apache.spark.streaming.kafka._
+import kafka.serializer.{Decoder, StringDecoder}
+import org.apache.spark.SparkConf
+import org.apache.spark.streaming._
+import org.apache.spark.streaming.kafka._
+import org.apache.spark.storage.StorageLevel
+import java.util.{Date, Properties}
+
+import org.apache.spark.sql.cassandra._
+import com.datastax.spark.connector._
+import com.datastax.driver.core.{Session, Cluster, Host, Metadata}
+import com.datastax.spark.connector.streaming._
+
+
+class NullDecoder(props: VerifiableProperties = null) extends Decoder[Null] {
+  def fromBytes(bytes: Array[Byte]): Null = null
+}
+*/
 
 object Main extends App {
 	
 	println("Date, Headline") //20030219
 
 
-	//setup for sentinent-analysis
+	//setup for sentiment-analysis
 	val props = new Properties()
   	props.setProperty("annotators", "tokenize, ssplit, parse, sentiment")
   	val pipeline: StanfordCoreNLP = new StanfordCoreNLP(props)
 
-	//val headlines: HashMap[Int, String] = new HashMap()
-
 	val headlines = new ListBuffer[Array[String]]()
 
-	val sentinents = new ListBuffer[Array[String]]()
-
-	//failed tests to create a Map with 2 values
-	//val test = new HashMap[Int, mutable.Set[List[String]]] with MultiMap[Int, List[String]]
-	//test.addBinding(10, List("a", "4"))
-	//val sentMap = new Map[String, List[String]]
-	//val mm = new mutable.HashMap[Int, mutable.Set[String]] with mutable.MultiMap[Int, String]
-	//mm.addBinding(20201020, Set("abc", "3"))
+	val sentiments = new ListBuffer[Array[String]]()
 
 	
 	val bufferedSource = Source.fromFile("abcnews-date-text.csv")
@@ -57,71 +68,75 @@ object Main extends App {
 
 	//headlines.foreach {((i) => i.foreach(println))} 
 	headlines.foreach {((i) => 
-		//test = pipeline.process(i(1))
-		//println(test, i(0), i(1))
 		pipeline.process(i(1)).get(classOf[CoreAnnotations.SentencesAnnotation])
 	    	.map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
 	    	.map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    	.foreach(x => sentinents.append(Array(i(0), x.toString)))
+	    	.foreach(x => sentiments.append(Array(i(0), x.toString)))
 	)} 
 
-	sentinents.foreach {((i) => i.foreach(println))} 
-
-/*
-		val annotation: Annotation = pipeline.process(i(1))
-		val sentences = annotation.get(classOf[CoreAnnotations.SentencesAnnotation])
-
-		sentences
-	    .map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
-	    .map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    .foreach(x => sentinents.append(Array(i(0), i(1), x)))
-*/
-
-/*
-
-	// predict sentiment for each headline and save to sentinents
-
-	for ((date, headline) <- headlines) {
-  		
-  		val annotation: Annotation = pipeline.process(headline)
-		val sentences = annotation.get(classOf[CoreAnnotations.SentencesAnnotation])
-
-		sentences
-	    .map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
-	    .map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    .foreach(x => sentinents.put(date.toInt, x))
-
-	}
-
-	for ((date, sentinent) <- sentinents) {
-		println(date, sentinent)
-	}
+	sentiments.foreach {((i) => i.foreach(println))} 
 
 
+	val toRemove = "()".toSet
+	/*
+	val field = sentiments(0)(1).filterNot(toRemove).split(",")
+	println("sentiments(0)(0)")
+	println(sentiments(0)(0))
+	println("sentiments(0)(1)")
+	println(field(0))
+	println(field(1))
+	*/
 
 
-	//ToDo: print collection
+//Writing to Kassandra
+
+    // connect to Cassandra and make a keyspace and table as explained in the document
+    val cluster = Cluster.builder().addContactPoint("127.0.0.1").build()
+    val session = cluster.connect()
+    session.execute("CREATE KEYSPACE IF NOT EXISTS project WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };")
+    session.execute("CREATE TABLE IF NOT EXISTS project.headline_sentiments (count int PRIMARY KEY, date text, headline text, sentiment int);")
+
+    val pairs = KafkaUtils.createDirectStream[
+	    Null,
+	    String,
+	    NullDecoder,
+	    StringDecoder
+    ](ssc, kafkaConf, Set("headline_sentiments"))
 
 
-	
-	
-	val sent = new Sentence("Lucy is in the sky with diamonds.")
-	val nerTags = sent.nerTags()
+    def mappingFunc(key: Null, value: Option[String], state: State[Int]): (Int, String, String, Int) = {
+    	
+		val count = state.getOption.getOrElse(1)
 
-	val props = new Properties()
-  	props.setProperty("annotators", "tokenize, ssplit, parse, sentiment")
-  	val pipeline: StanfordCoreNLP = new StanfordCoreNLP(props)
+		val field = sentiments(count)
 
-	val str = "Lucy is in the sky with diamonds."
-	val annotation: Annotation = pipeline.process(str)
-	val sentences = annotation.get(classOf[CoreAnnotations.SentencesAnnotation])
+		val date = field(0)
+
+		val field1 = field(1).filterNot(toRemove).split(",")
+
+		val headline = field1(0)
+
+		val sentiment = field1(1)
+
+    	state.update(count+1)
+
+    	return (count, date, headline, sentiment)
+
+    }
 
 
-	sentences
-	    .map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
-	    .map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    .foreach(x => println(x))
+    val stateDstream = pairs.mapWithState(StateSpec.function(mappingFunc _))
 
-	
-*/
+    //mappingFunc was the one to calculate (newKey, newAvg) based on the state. 
+
+    // store the result in Cassandra
+    stateDstream.saveToCassandra("project", "headline_sentiments", SomeColumns("count", "date", "headline", "sentiment"))
+
+    ssc.start()
+    ssc.awaitTermination()
+
+    session.close()
+  }
+
+
 }
