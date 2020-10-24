@@ -15,6 +15,9 @@ import scala.collection.mutable.HashMap
 import scala.collection.immutable.List
 import scala.collection.mutable.ListBuffer  
 
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
+
 /*
 //imports for writing to cassandra
 import org.apache.spark.streaming.kafka._
@@ -31,15 +34,13 @@ import com.datastax.driver.core.{Session, Cluster, Host, Metadata}
 import com.datastax.spark.connector.streaming._
 
 
+//only needed when using directstream from KafkaUtils
 class NullDecoder(props: VerifiableProperties = null) extends Decoder[Null] {
   def fromBytes(bytes: Array[Byte]): Null = null
 }
 */
 
 object Main extends App {
-	
-	println("Date, Headline") //20030219
-
 
 	//setup for sentiment-analysis
 	val props = new Properties()
@@ -65,28 +66,33 @@ object Main extends App {
 
 	var test: Annotation = _
 	var sentences: java.util.List[CoreMap] = _
+	val toRemove = "()".toSet
 
 	//headlines.foreach {((i) => i.foreach(println))} 
 	headlines.foreach {((i) => 
 		pipeline.process(i(1)).get(classOf[CoreAnnotations.SentencesAnnotation])
 	    	.map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
 	    	.map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    	.foreach(x => sentiments.append(Array(i(0), x.toString)))
+	    	.foreach(x => sentiments.append(Array(i(0), x.toString.filterNot(toRemove).split(",")(0),x.toString.filterNot(toRemove).split(",")(1))))
 	)} 
 
-	sentiments.foreach {((i) => i.foreach(println))} 
+	//sentiments is now an Array of String-Arrays, each of which contains date(0), headline(1) and sentiment(2)
+	//sentiments.foreach {((i) => i.foreach(println))} 
+	//println("sentiments(0)(1)")
 
-
-	val toRemove = "()".toSet
-	/*
-	val field = sentiments(0)(1).filterNot(toRemove).split(",")
-	println("sentiments(0)(0)")
-	println(sentiments(0)(0))
-	println("sentiments(0)(1)")
-	println(field(0))
-	println(field(1))
-	*/
-
+////////////////////////////////////Using Spark
+	val spark:SparkSession = SparkSession.builder().master("local[1]")
+          .appName("final-project")
+          .getOrCreate()
+    val rdd:RDD[Array[String]] = spark.sparkContext.parallelize(sentiments)
+    /*
+      val rddCollect:Array[Array[String]] = rdd.collect()
+      println("Number of Partitions: "+rdd.getNumPartitions)
+      println("Action: First element: "+rdd.first())
+      println("Action: RDD converted to Array[String] : ")
+      rddCollect.foreach(println)
+*/
+      
 
 //Writing to Kassandra
 
@@ -95,6 +101,17 @@ object Main extends App {
     val session = cluster.connect()
     session.execute("CREATE KEYSPACE IF NOT EXISTS project WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };")
     session.execute("CREATE TABLE IF NOT EXISTS project.headline_sentiments (count int PRIMARY KEY, date text, headline text, sentiment int);")
+
+
+    //rdd.saveToCassandra(project,headline_sentiments,SomeColumns("count","date","headline","sentiment))
+
+
+///////////////////////////////////
+
+
+/*
+
+/////////////////////////Using Kafkautils
 
     val pairs = KafkaUtils.createDirectStream[
 	    Null,
@@ -112,22 +129,16 @@ object Main extends App {
 
 		val date = field(0)
 
-		val field1 = field(1).filterNot(toRemove).split(",")
+		val headline = field(1)
 
-		val headline = field1(0)
-
-		val sentiment = field1(1)
+		val sentiment = field(2)
 
     	state.update(count+1)
 
     	return (count, date, headline, sentiment)
-
     }
 
-
     val stateDstream = pairs.mapWithState(StateSpec.function(mappingFunc _))
-
-    //mappingFunc was the one to calculate (newKey, newAvg) based on the state. 
 
     // store the result in Cassandra
     stateDstream.saveToCassandra("project", "headline_sentiments", SomeColumns("count", "date", "headline", "sentiment"))
@@ -137,6 +148,8 @@ object Main extends App {
 
     session.close()
   }
+///////////////////////////////////
 
+*/
 
 }
