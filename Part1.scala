@@ -50,11 +50,11 @@ object Main extends App {
 
 	val headlines = new ListBuffer[Array[String]]()
 
-	val sentiments = new ListBuffer[Seq[String]]()
+	val sentiments = new ListBuffer[(String, String, String)]()
 
 	// read csv into headlines
 	val bufferedSource = Source.fromFile("abcnews-date-text.csv")
-	for (line <- bufferedSource.getLines.take(11).drop(1)) {
+	for (line <- bufferedSource.getLines.drop(1)) {
    
     	val Array(date, headline) = line.split(",").map(_.trim) //each line gets written into an array
 
@@ -74,13 +74,12 @@ object Main extends App {
 		pipeline.process(i(1)).get(classOf[CoreAnnotations.SentencesAnnotation])
 	    	.map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
 	    	.map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    	.zipWithIndex.foreach{ case (x,index) => sentiments.append(Seq(
-				index.toString,
+	    	.foreach(x  => sentiments.append((
 				i(0),
 				x.toString.filterNot(toRemove).split(",")(0),
 				x.toString.filterNot(toRemove).split(",")(1)
-			))}
-	)} 
+			)))
+	)}
 
 	//sentiments is now an Array of String-Arrays, each of which contains date(0), headline(1) and sentiment(2)
 	//sentiments.foreach {((i) => i.foreach(println))} 
@@ -90,13 +89,14 @@ object Main extends App {
 	val spark:SparkSession = SparkSession.builder().master("local[1]")
           .appName("final-project")
           .getOrCreate()
-    val rdd:RDD[Seq[String]] = spark.sparkContext.parallelize(sentiments)
+		  
+    val rdd:RDD[(String, String, String)] = spark.sparkContext.parallelize(sentiments)
     
-      val rddCollect:Array[Seq[String]] = rdd.collect()
+      val rddCollect = rdd.collect()
       println("Number of Partitions: "+rdd.getNumPartitions)
-      println("Action: First element: "+rdd.first().size)
+      println("Action: First element: "+rdd.first())
       println("Action: RDD converted to Array[String] : ")
-      rddCollect.foreach(x => println(x.size))
+      rddCollect.foreach(println)
 
       
 
@@ -106,10 +106,10 @@ object Main extends App {
     val cluster = Cluster.builder().addContactPoint("127.0.0.1").build()
     val session = cluster.connect()
     session.execute("CREATE KEYSPACE IF NOT EXISTS project WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };")
-    session.execute("CREATE TABLE IF NOT EXISTS project.headline_sentiments (number int PRIMARY KEY, date text, headline text, sentiment int);")
+    session.execute("CREATE TABLE IF NOT EXISTS project.headline_sentiments (date text, headline text, sentiment int, PRIMARY KEY (date, headline));")
 
 
-    rdd.saveToCassandra("project","headline_sentiments",SomeColumns("number", "date","headline","sentiment"))
+    rdd.saveToCassandra("project","headline_sentiments",SomeColumns("date","headline","sentiment"))
     
     //or
     /*val schema =  StructType(Array(StructField("date",StringType,true),StructField("headline",StringType,true),StructField("sentiment",IntegerType,true)))
