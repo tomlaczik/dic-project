@@ -18,10 +18,11 @@ import scala.collection.mutable.ListBuffer
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 
-/*
+
 //imports for writing to cassandra
 import org.apache.spark.streaming.kafka._
 import kafka.serializer.{Decoder, StringDecoder}
+import kafka.utils.VerifiableProperties
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming._
 import org.apache.spark.streaming.kafka._
@@ -38,7 +39,7 @@ import com.datastax.spark.connector.streaming._
 class NullDecoder(props: VerifiableProperties = null) extends Decoder[Null] {
   def fromBytes(bytes: Array[Byte]): Null = null
 }
-*/
+
 
 object Main extends App {
 
@@ -49,7 +50,7 @@ object Main extends App {
 
 	val headlines = new ListBuffer[Array[String]]()
 
-	val sentiments = new ListBuffer[Array[String]]()
+	val sentiments = new ListBuffer[Seq[String]]()
 
 	// read csv into headlines
 	val bufferedSource = Source.fromFile("abcnews-date-text.csv")
@@ -73,7 +74,12 @@ object Main extends App {
 		pipeline.process(i(1)).get(classOf[CoreAnnotations.SentencesAnnotation])
 	    	.map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
 	    	.map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
-	    	.foreach(x => sentiments.append(Array(i(0), x.toString.filterNot(toRemove).split(",")(0),x.toString.filterNot(toRemove).split(",")(1))))
+	    	.zipWithIndex.foreach{ case (x,index) => sentiments.append(Seq(
+				index.toString,
+				i(0),
+				x.toString.filterNot(toRemove).split(",")(0),
+				x.toString.filterNot(toRemove).split(",")(1)
+			))}
 	)} 
 
 	//sentiments is now an Array of String-Arrays, each of which contains date(0), headline(1) and sentiment(2)
@@ -84,14 +90,14 @@ object Main extends App {
 	val spark:SparkSession = SparkSession.builder().master("local[1]")
           .appName("final-project")
           .getOrCreate()
-    val rdd:RDD[Array[String]] = spark.sparkContext.parallelize(sentiments)
-    /*
-      val rddCollect:Array[Array[String]] = rdd.collect()
+    val rdd:RDD[Seq[String]] = spark.sparkContext.parallelize(sentiments)
+    
+      val rddCollect:Array[Seq[String]] = rdd.collect()
       println("Number of Partitions: "+rdd.getNumPartitions)
-      println("Action: First element: "+rdd.first())
+      println("Action: First element: "+rdd.first().size)
       println("Action: RDD converted to Array[String] : ")
-      rddCollect.foreach(println)
-*/
+      rddCollect.foreach(x => println(x.size))
+
       
 
 //Writing to Kassandra
@@ -100,22 +106,32 @@ object Main extends App {
     val cluster = Cluster.builder().addContactPoint("127.0.0.1").build()
     val session = cluster.connect()
     session.execute("CREATE KEYSPACE IF NOT EXISTS project WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };")
-    session.execute("CREATE TABLE IF NOT EXISTS project.headline_sentiments (count int PRIMARY KEY, date text, headline text, sentiment int);")
+    session.execute("CREATE TABLE IF NOT EXISTS project.headline_sentiments (number int PRIMARY KEY, date text, headline text, sentiment int);")
 
 
-    //rdd.saveToCassandra(project,headline_sentiments,SomeColumns("count","date","headline","sentiment))
+    rdd.saveToCassandra("project","headline_sentiments",SomeColumns("number", "date","headline","sentiment"))
     
     //or
-    val schema =  StructType(Array(StructField("date",StringType,true),StructField("headline",StringType,true),StructField("sentiment",IntegerType,true)))
+    /*val schema =  StructType(Array(StructField("date",StringType,true),StructField("headline",StringType,true),StructField("sentiment",IntegerType,true)))
     val rddDF = sqlContext.applySchema(rdd, schema)
     rddDF.write.format("org.apache.spark.sql.cassandra").options(Map( "table" -> "words_copy", "keyspace" -> "test")).save()
-
+*/
 ///////////////////////////////////
 
 
-/*
+
 
 /////////////////////////Using Kafkautils
+
+/*val conf = new SparkConf().setMaster("local[2]").setAppName("HeadlineSentiment")
+    val ssc = new StreamingContext(conf, Seconds(1))
+    ssc.checkpoint("./checkpoints")
+
+    val kafkaConf = Map(
+      "metadata.broker.list" -> "localhost:9092",
+      "zookeeper.connect" -> "localhost:2181",
+      "group.id" -> "kafka-spark-streaming",
+      "zookeeper.connection.timeout.ms" -> "1000")
 
     val pairs = KafkaUtils.createDirectStream[
 	    Null,
@@ -135,7 +151,7 @@ object Main extends App {
 
 		val headline = field(1)
 
-		val sentiment = field(2)
+		val sentiment = field(2).toInt
 
     	state.update(count+1)
 
@@ -151,9 +167,12 @@ object Main extends App {
     ssc.awaitTermination()
 
     session.close()
-  }
+  
 ///////////////////////////////////
-
 */
+
+
+
+	session.close()
 
 }
