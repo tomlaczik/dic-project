@@ -51,7 +51,7 @@ object Main extends App {
 
 	val sentiments = new ListBuffer[Array[String]]()
 
-	
+	// read csv into headlines
 	val bufferedSource = Source.fromFile("abcnews-date-text.csv")
 	for (line <- bufferedSource.getLines.take(11).drop(1)) {
    
@@ -68,7 +68,7 @@ object Main extends App {
 	var sentences: java.util.List[CoreMap] = _
 	val toRemove = "()".toSet
 
-	//headlines.foreach {((i) => i.foreach(println))} 
+	//transform second array, add sentiment analysis and write everything into sentiments
 	headlines.foreach {((i) => 
 		pipeline.process(i(1)).get(classOf[CoreAnnotations.SentencesAnnotation])
 	    	.map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
@@ -104,7 +104,11 @@ object Main extends App {
 
 
     //rdd.saveToCassandra(project,headline_sentiments,SomeColumns("count","date","headline","sentiment))
-
+    
+    //or
+    val schema =  StructType(Array(StructField("date",StringType,true),StructField("headline",StringType,true),StructField("sentiment",IntegerType,true)))
+    val rddDF = sqlContext.applySchema(rdd, schema)
+    rddDF.write.format("org.apache.spark.sql.cassandra").options(Map( "table" -> "words_copy", "keyspace" -> "test")).save()
 
 ///////////////////////////////////
 
