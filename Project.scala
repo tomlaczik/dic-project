@@ -9,8 +9,22 @@ import scalaj.http.Http
 import vegas._
 import vegas.render.WindowRenderer._
 
+import org.apache.spark.sql.SparkSession
+
+import org.apache.spark.sql.cassandra._
+//Spark connector
+import com.datastax.spark.connector._
+import com.datastax.spark.connector.cql.CassandraConnector
+
 object Project {
   def main(args: Array[String]) {
+    val spark:SparkSession = SparkSession.builder().master("local[1]")
+          .appName("final-project")
+          .getOrCreate()
+    val sentimentData = spark.read.cassandraFormat("headline_sentiments", "project", "").load()
+    val sentiments = sentimentData.groupBy("date").avg("sentiment")
+    sentiments.show()
+  
     // Each resource contains data between January 7 of the given year and December 6 of the next year
     // E.g. 2018: 2018-01-07 => 2019-12-06
     // Source: https://data.gov.au/dataset/ds-sa-860126f7-eeb5-4fbc-be44-069aa0467d11/details
@@ -50,7 +64,16 @@ object Project {
       println("Total records: " + records.size)
       println("")
 
-      val plot = Vegas(year)
+      val recordsWithSentiment = records.map(record => {
+        val date = record("Reported Date").slice(0, 10).replace("-", "")
+        val sentiment = sentiments.filter(sentiments("date") === date)
+        val m2 = Map("sentiment" -> sentiment("avg(sentiment)"))
+        record.++(m2)
+      })
+
+      println(recordsWithSentiment)
+
+      /*val plot = Vegas(year)
         .withData(records)
         .encodeX("Reported Date", Nom)
         .encodeY("sum", Quant)
@@ -59,7 +82,7 @@ object Project {
       val file = new File("output/" + year + ".html")
       val bw = new BufferedWriter(new FileWriter(file))
       bw.write(plot.html.pageHTML())
-      bw.close()
+      bw.close()*/
     }
   }
 }
