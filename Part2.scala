@@ -1,5 +1,3 @@
-package project
-
 import java.io._
 
 import scala.collection.immutable.TreeMap
@@ -12,13 +10,12 @@ import vegas.render.WindowRenderer._
 import org.apache.spark.sql.SparkSession
 
 import org.apache.spark.sql.cassandra._
-//Spark connector
 import com.datastax.spark.connector._
 import com.datastax.spark.connector.cql.CassandraConnector
 
-object Project {
+object Part2 {
   def main(args: Array[String]) {
-    val spark:SparkSession = SparkSession.builder().master("local[1]")
+    val spark: SparkSession = SparkSession.builder().master("local[1]")
           .appName("final-project")
           .getOrCreate()
     val sentimentData = spark.read.cassandraFormat("headline_sentiments", "project", "").load()
