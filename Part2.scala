@@ -97,12 +97,12 @@ object Part2 {
         .withLayers(
           Layer()
             .mark(Line)
-            .encodeX("Date", Temp)
-            .encodeY("Number of Crimes", Quant),
+            .encodeX("date", Temp)
+            .encodeY("incidents", Quant),
           Layer()
             .mark(Line)
-            .encodeX("Date", Temp)
-            .encodeY("Headline Sentiment", Quant)
+            .encodeX("date", Temp)
+            .encodeY("sentiment", Quant)
             .configMark(color="red")
         )
 
