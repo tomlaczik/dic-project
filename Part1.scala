@@ -41,7 +41,7 @@ class NullDecoder(props: VerifiableProperties = null) extends Decoder[Null] {
 }
 
 
-object Main extends App {
+object Part1 extends App {
 
 	//setup for sentiment-analysis
 	val props = new Properties()
@@ -52,6 +52,8 @@ object Main extends App {
 
 	val sentiments = new ListBuffer[(String, String, String)]()
 
+	println("START READING")
+
 	// read csv into headlines
 	val bufferedSource = Source.fromFile("abcnews-date-text.csv")
 	for (line <- bufferedSource.getLines.drop(1)) {
@@ -59,19 +61,30 @@ object Main extends App {
     	val Array(date, headline) = line.split(",").map(_.trim) //each line gets written into an array
 
     	//filter out everything before 2010
-    	//if(s"$date".toInt>20100000){
-    		headlines.append(Array(s"$date", s"$headline"))
-    	//}
+    	if(date.take(4) == "2018"){
+    		headlines.append(Array(date, headline))
+    	}
 	}
 	bufferedSource.close 
+
+	println("FINISH READING")
+	println(headlines.size)
 
 	var test: Annotation = _
 	var sentences: java.util.List[CoreMap] = _
 	val toRemove = "()".toSet
 
+	var index = 0
+
 	//transform second array, add sentiment analysis and write everything into sentiments
-	headlines.foreach {((i) => 
-		pipeline.process(i(1)).get(classOf[CoreAnnotations.SentencesAnnotation])
+	headlines.foreach {((i) => {
+		if(index % 1000 == 0) {
+			println(index)
+		}
+		index += 1
+		pipeline
+			.process(i(1))
+			.get(classOf[CoreAnnotations.SentencesAnnotation])
 	    	.map(sentence => (sentence, sentence.get(classOf[SentimentCoreAnnotations.SentimentAnnotatedTree])))
 	    	.map { case (sentence, tree) => (sentence.toString,RNNCoreAnnotations.getPredictedClass(tree)) }
 	    	.foreach(x  => sentiments.append((
@@ -79,6 +92,7 @@ object Main extends App {
 				x.toString.filterNot(toRemove).split(",")(0),
 				x.toString.filterNot(toRemove).split(",")(1)
 			)))
+		}
 	)}
 
 	//sentiments is now an Array of String-Arrays, each of which contains date(0), headline(1) and sentiment(2)
